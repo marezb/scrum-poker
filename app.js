@@ -1,7 +1,36 @@
-import { generateId, verifyPassword, POKER_CARDS, firebaseConfig } from './config.js?v=2';
-import { elements, screens, showScreen, renderDeck, updateDeckSelection, renderPlayers } from './ui.js?v=2';
-import { calculateAverage, getClosestFibonacci, checkAutoRevealCondition } from './game-logic.js?v=2';
-import * as db from './firebase-service.js?v=2';
+import { generateId, verifyPassword, POKER_CARDS, FIB_COLORS, firebaseConfig } from './config.js?v=18';
+import { elements, screens, showScreen, renderDeck, updateDeckSelection, renderPlayers } from './ui.js?v=18';
+import { calculateAverage, getClosestFibonacci, checkAutoRevealCondition } from './game-logic.js?v=18';
+import * as db from './firebase-service.js?v=18';
+
+function spawnRestingConfetti() {
+    const colors = ['#26ccff', '#a25afd', '#ff5e7e', '#88ff5a', '#fcff42', '#ffa62d', '#ff36ff'];
+    const container = document.querySelector('.deck-area');
+    if (!container) return;
+    
+    for (let i = 0; i < 50; i++) {
+        setTimeout(() => {
+            if (!isRevealed) return; // don't spawn if round already reset
+            const conf = document.createElement('div');
+            conf.className = 'resting-confetti';
+            conf.style.left = (Math.random() * 95 + 2) + '%'; 
+            conf.style.top = (Math.random() * 85 + 5) + '%'; 
+            conf.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+            conf.style.setProperty('--rot', `${Math.random() * 360}deg`);
+            
+            // random shape: circle or square or rectangle
+            const shapeType = Math.random();
+            if (shapeType > 0.6) {
+                conf.style.borderRadius = '50%';
+            } else if (shapeType > 0.3) {
+                conf.style.width = '12px';
+                conf.style.height = '6px';
+            }
+            
+            container.appendChild(conf);
+        }, 1500 + Math.random() * 2500); // trickle in between 1.5s and 4.0s
+    }
+}
 
 // State variables
 let currentPlayerId = localStorage.getItem('sp_playerId');
@@ -14,8 +43,9 @@ let currentName = localStorage.getItem('sp_playerName') || '';
 let currentRole = localStorage.getItem('sp_playerRole') || 'player';
 let currentRoomId = null;
 let isRevealed = false;
-let isOfflineMode = false;
+let isOfflineMode = localStorage.getItem('sp_offlineMode') === 'true';
 let playersData = {};
+let currentRoundNumber = 1;
 
 // === Initialization ===
 function init() {
@@ -35,11 +65,7 @@ function init() {
             elements.roomIdGroup.classList.remove('hidden');
             elements.joinBtn.innerText = "Join Game";
 
-            if (currentName) {
-                setTimeout(() => elements.joinForm.dispatchEvent(new Event('submit')), 100);
-            } else {
-                showScreen('login');
-            }
+            showScreen('login');
         } else {
             showScreen('login');
         }
@@ -52,6 +78,21 @@ function init() {
 
 
 // === Login Handlers ===
+elements.passwordInput.addEventListener('input', async (e) => {
+    const pwd = e.target.value.trim();
+    if (pwd.length > 0) {
+        const isValid = await verifyPassword(pwd);
+        if (isValid) {
+            elements.adminDashboard.classList.remove('hidden');
+            if (db && db.fetchActiveRooms) db.fetchActiveRooms(renderActiveRooms);
+        } else {
+            elements.adminDashboard.classList.add('hidden');
+        }
+    } else {
+        elements.adminDashboard.classList.add('hidden');
+    }
+});
+
 elements.joinForm.addEventListener('submit', async (e) => {
     e.preventDefault();
 
@@ -70,7 +111,7 @@ elements.joinForm.addEventListener('submit', async (e) => {
             
             // Show admin dashboard after successful authentication
             elements.adminDashboard.classList.remove('hidden');
-            db.fetchActiveRooms(renderActiveRooms);
+            if (db && db.fetchActiveRooms) db.fetchActiveRooms(renderActiveRooms);
 
             if (!isOfflineMode) {
                 await db.createRoom(room);
@@ -91,9 +132,22 @@ elements.joinForm.addEventListener('submit', async (e) => {
         }
     } catch (err) {
         console.error("Failed to create/join room:", err);
+        document.body.innerHTML = `<h1 style="color:red;z-index:9999;position:absolute;">ERROR: ${err.message} ${err.stack}</h1>`;
         alert("Error connecting to the server. Please try again or check your connection.");
     }
 });
+
+function formatTimeAgo(timestamp) {
+    if (!timestamp) return 'Unknown';
+    const seconds = Math.floor((Date.now() - timestamp) / 1000);
+    if (seconds < 60) return 'Just now';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+}
 
 function renderActiveRooms(activeRooms) {
     elements.activeRoomsList.innerHTML = '';
@@ -102,10 +156,16 @@ function renderActiveRooms(activeRooms) {
         return;
     }
 
-    activeRooms.forEach(roomId => {
+    activeRooms.forEach(room => {
+        const roomId = typeof room === 'string' ? room : room.id;
+        const lastActiveText = room.lastActive ? formatTimeAgo(room.lastActive) : 'Unknown';
+        
         const li = document.createElement('li');
         li.innerHTML = `
-            <span>Room: ${roomId}</span>
+            <div style="display: flex; flex-direction: column; gap: 4px;">
+                <span>Room: ${roomId}</span>
+                <span style="font-size: 0.75rem; color: var(--text-muted);">Last active: ${lastActiveText}</span>
+            </div>
             <div class="room-actions">
                 <button class="btn icon-btn copy-btn" data-room="${roomId}" title="Copy Link">Copy Link</button>
                 <button class="btn icon-btn close-btn" data-room="${roomId}" title="Close Room" style="color: #ef4444;">Close</button>
@@ -128,14 +188,9 @@ function renderActiveRooms(activeRooms) {
     document.querySelectorAll('.close-btn').forEach(btn => {
         btn.addEventListener('click', async (e) => {
             e.preventDefault();
-            const pwd = prompt("Enter Admin Password to close this room:");
-            if (pwd !== null) {
-                const isValid = await verifyPassword(pwd);
-                if (isValid) {
-                    db.closeRoom(e.target.dataset.room);
-                } else {
-                    alert("Access Denied");
-                }
+            const isConfirmed = confirm("Are you sure you want to close this room?");
+            if (isConfirmed) {
+                db.closeRoom(e.target.dataset.room);
             }
         });
     });
@@ -160,9 +215,13 @@ elements.revealBtn.addEventListener('click', () => {
     if (!currentRoomId) return;
     if (isOfflineMode) {
         isRevealed = true;
-        updateGameStateOffline(true);
+        updateGameStateOffline(true, currentName);
     } else {
-        db.updateRevealedState(currentRoomId, true);
+        const res = calculateAverage(playersData);
+        if (res) {
+            db.addRoundHistory(currentRoomId, getClosestFibonacci(res.average));
+        }
+        db.updateRevealedState(currentRoomId, true, currentName);
     }
 });
 
@@ -171,9 +230,9 @@ elements.resetBtn.addEventListener('click', () => {
     if (isOfflineMode) {
         isRevealed = false;
         Object.keys(playersData).forEach(pId => { playersData[pId].vote = null; });
-        updateGameStateOffline();
+        updateGameStateOffline(false, null, currentName, true);
     } else {
-        db.clearAllVotes(currentRoomId, playersData);
+        db.clearAllVotes(currentRoomId, playersData, currentName);
     }
 });
 
@@ -191,8 +250,10 @@ function joinRoomOnline(roomId) {
 
     if (localStorage.getItem(`sp_admin_${roomId}`) === "true") {
         elements.closeRoomBtn.classList.remove('hidden');
+        elements.clearHistoryBtn.classList.remove('hidden');
     } else {
         elements.closeRoomBtn.classList.add('hidden');
+        elements.clearHistoryBtn.classList.add('hidden');
     }
 
     const url = new URL(window.location.href);
@@ -227,19 +288,31 @@ function joinRoomOnline(roomId) {
             renderPlayers(playersData, isRevealed);
             updateDeckSelection(playersData[currentPlayerId]?.vote, isRevealed);
             if (!isRevealed && checkAutoRevealCondition(playersData)) {
-                db.updateRevealedState(currentRoomId, true);
+                // To avoid multiple history entries, only the first active player pushes it
+                const activeIds = Object.keys(playersData).filter(id => playersData[id].role !== 'spectator').sort();
+                if (activeIds[0] === currentPlayerId) {
+                    const res = calculateAverage(playersData);
+                    if (res) {
+                        db.addRoundHistory(currentRoomId, getClosestFibonacci(res.average));
+                    }
+                }
+                db.updateRevealedState(currentRoomId, true, "System (Auto)");
             }
         },
         onStateChange: (state) => {
             const wasRevealed = isRevealed;
             isRevealed = state.revealed;
             const animate = isRevealed && !wasRevealed;
-            updateUIState();
-            renderPlayers(playersData, isRevealed, animate);
+            const resetAnim = !isRevealed && wasRevealed;
+            updateUIState(state.revealedBy, state.resetBy);
+            renderPlayers(playersData, isRevealed, animate, resetAnim);
         },
         onRoomClosed: () => {
             alert("This room has been closed by the admin.");
             window.location.href = window.location.pathname;
+        },
+        onHistoryChange: (history) => {
+            renderHistory(history);
         }
     });
 }
@@ -284,8 +357,8 @@ function joinRoomOffline(roomId) {
     updateGameStateOffline();
 }
 
-function updateGameStateOffline(animate = false) {
-    updateUIState();
+function updateGameStateOffline(animate = false, revealedBy = null, resetBy = null, resetAnim = false) {
+    updateUIState(revealedBy, resetBy);
     if (!isRevealed) {
         Object.keys(playersData).forEach(pId => {
             if (pId.startsWith('fake_') && playersData[pId].vote === null && playersData[pId].role !== 'spectator') {
@@ -293,24 +366,93 @@ function updateGameStateOffline(animate = false) {
             }
         });
     }
-    renderPlayers(playersData, isRevealed, animate);
+    renderPlayers(playersData, isRevealed, animate, resetAnim);
     updateDeckSelection(playersData[currentPlayerId]?.vote, isRevealed);
 }
 
-function updateUIState() {
+function updateUIState(revealedBy = null, resetBy = null) {
     if (isRevealed) {
         elements.revealBtn.classList.add('hidden');
         elements.resetBtn.classList.remove('hidden');
+        
+        elements.resultsArea.classList.remove('fade-out');
+        elements.statsPanel.classList.remove('fade-out');
         elements.resultsArea.classList.remove('hidden');
         elements.statsPanel.classList.remove('hidden');
+
+        if (revealedBy && elements.revealedByInfo) {
+            elements.revealedByInfo.innerText = `Revealed by ${revealedBy}`;
+            elements.revealedByInfo.classList.remove('fade-out');
+            elements.revealedByInfo.classList.remove('hidden');
+        } else if (elements.revealedByInfo) {
+            elements.revealedByInfo.classList.add('hidden');
+        }
         handleCalculateResults();
     } else {
         elements.revealBtn.classList.remove('hidden');
         elements.resetBtn.classList.add('hidden');
-        elements.resultsArea.classList.add('hidden');
-        elements.statsPanel.classList.add('hidden');
+        
+        elements.resultsArea.classList.add('fade-out');
+        elements.statsPanel.classList.add('fade-out');
+        if (elements.revealedByInfo && !resetBy) {
+            elements.revealedByInfo.classList.add('fade-out');
+        }
+
+        setTimeout(() => {
+            if (!isRevealed) {
+                elements.resultsArea.classList.add('hidden');
+                elements.statsPanel.classList.add('hidden');
+                
+                if (resetBy && elements.revealedByInfo) {
+                    elements.revealedByInfo.innerHTML = `<strong style="font-size: 1.1em; color: var(--text-main);">Round ${currentRoundNumber}</strong><br><span style="font-style: italic;">Started by ${resetBy}</span>`;
+                    elements.revealedByInfo.classList.remove('fade-out');
+                    elements.revealedByInfo.classList.remove('hidden');
+                } else if (elements.revealedByInfo) {
+                    elements.revealedByInfo.classList.add('hidden');
+                }
+            }
+        }, 300);
+
+        document.querySelectorAll('.resting-confetti').forEach(el => el.remove());
     }
 }
+
+function renderHistory(historyObj) {
+    elements.historyList.innerHTML = '';
+    const historyEntries = Object.values(historyObj).sort((a, b) => a.timestamp - b.timestamp);
+    if (historyEntries.length > 0) {
+        elements.historyPanel.classList.remove('hidden');
+        let roundCounter = 1;
+        historyEntries.forEach((entry) => {
+            if (entry.type === 'new_round') return; // ignore legacy new_round entries
+            const li = document.createElement('li');
+            let scoreText = entry.score;
+            let bgStyle = '';
+            let textStyle = '';
+            if (FIB_COLORS[entry.score]) {
+                bgStyle = `background-color: ${FIB_COLORS[entry.score].bg};`;
+                textStyle = `color: ${FIB_COLORS[entry.score].text};`;
+            }
+            li.innerHTML = `<span>Round ${roundCounter}</span> <strong style="${bgStyle} ${textStyle} padding: 2px 10px; border-radius: 12px;">${scoreText}</strong>`;
+            roundCounter++;
+            elements.historyList.appendChild(li);
+        });
+        currentRoundNumber = roundCounter;
+        
+        // Auto-scroll to the bottom to always show the newest round
+        elements.historyList.scrollTop = elements.historyList.scrollHeight;
+    } else {
+        elements.historyPanel.classList.add('hidden');
+        currentRoundNumber = 1;
+    }
+}
+
+elements.clearHistoryBtn.addEventListener('click', () => {
+    if (!currentRoomId || isOfflineMode) return;
+    if (confirm("Are you sure you want to clear the round history for everyone?")) {
+        db.clearRoundHistory(currentRoomId);
+    }
+});
 
 function handleCalculateResults() {
     const res = calculateAverage(playersData);
@@ -321,6 +463,25 @@ function handleCalculateResults() {
         const divLine = `${res.sum} / ${res.count} = ${res.average.toFixed(1)}`;
         elements.statsEquation.innerHTML = `Calculation:<br>${sumLine}<br>${divLine}`;
         elements.statsClosest.innerHTML = `Closest Fibonacci: <strong>${getClosestFibonacci(res.average)}</strong>`;
+        // Trigger confetti on unanimous vote (if at least two votes exist and all are equal)
+        if (res.count > 1 && res.equationParts.every(val => val === res.equationParts[0])) {
+            if (window.confetti) {
+                for (let i = 0; i < 4; i++) {
+                    setTimeout(() => {
+                        confetti({
+                            particleCount: 120,
+                            spread: 100,
+                            origin: { y: 0.6 },
+                            zIndex: 9999,
+                            ticks: 400,
+                            gravity: 0.5,
+                            startVelocity: 35
+                        });
+                    }, i * 1000); // 1000ms gap between explosions for a longer effect
+                }
+                spawnRestingConfetti();
+            }
+        }
     } else {
         elements.averageScoreDisplay.innerText = "-";
         elements.statsEquation.innerHTML = "No numeric votes cast.";
@@ -337,7 +498,7 @@ function handleCardSelect(value) {
         playersData[currentPlayerId].vote = newVote;
         if (!isRevealed && checkAutoRevealCondition(playersData)) {
             isRevealed = true;
-            updateGameStateOffline(true);
+            updateGameStateOffline(true, "System (Auto)");
         } else {
             updateGameStateOffline();
         }
@@ -360,5 +521,6 @@ window.__TEST_EXPORTS__ = {
     setPlayersData: (data) => { playersData = data; },
     setIsRevealed: (rev) => { isRevealed = rev; },
     calculateResults: handleCalculateResults,
-    renderPlayers: (animate) => renderPlayers(playersData, isRevealed, animate)
+    renderPlayers: (animate) => renderPlayers(playersData, isRevealed, animate),
+    renderHistory: renderHistory
 };

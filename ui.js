@@ -1,4 +1,4 @@
-import { POKER_CARDS } from './config.js?v=2';
+import { POKER_CARDS, FIB_COLORS } from './config.js?v=6';
 
 export const elements = {
     // Login Screen
@@ -22,6 +22,7 @@ export const elements = {
     playersContainer: document.getElementById('players-container'),
     revealBtn: document.getElementById('reveal-btn'),
     resetBtn: document.getElementById('reset-btn'),
+    revealedByInfo: document.getElementById('revealed-by-info'),
     resultsArea: document.getElementById('results-area'),
     averageScoreDisplay: document.getElementById('average-score'),
     statsPanel: document.getElementById('stats-panel'),
@@ -30,7 +31,10 @@ export const elements = {
     closeRoomBtn: document.getElementById('close-room-btn'),
     spectatorsPanel: document.getElementById('spectators-panel'),
     spectatorsList: document.getElementById('spectators-list'),
-    deckArea: document.querySelector('.deck-area')
+    deckArea: document.querySelector('.deck-area'),
+    historyPanel: document.getElementById('history-panel'),
+    historyList: document.getElementById('history-list'),
+    clearHistoryBtn: document.getElementById('clear-history-btn')
 };
 
 export const screens = {
@@ -72,15 +76,24 @@ export function updateDeckSelection(myVote, isRevealed) {
     });
 }
 
-export function renderPlayers(playersData, isRevealed, animate = false) {
+export function renderPlayers(playersData, isRevealed, animate = false, resetAnim = false) {
     elements.playersContainer.innerHTML = '';
     elements.spectatorsList.innerHTML = '';
 
     const allPlayers = Object.values(playersData).sort((a, b) => a.joinedAt - b.joinedAt);
     if (allPlayers.length === 0) return;
 
-    const activePlayers = allPlayers.filter(p => p.role !== 'spectator');
+    let activePlayers = allPlayers.filter(p => p.role !== 'spectator');
     const spectators = allPlayers.filter(p => p.role === 'spectator');
+
+    if (isRevealed) {
+        activePlayers.sort((a, b) => {
+            const valA = a.vote ? POKER_CARDS.indexOf(a.vote) : 999;
+            const valB = b.vote ? POKER_CARDS.indexOf(b.vote) : 999;
+            if (valA === valB) return a.joinedAt - b.joinedAt;
+            return valA - valB;
+        });
+    }
 
     if (spectators.length > 0) {
         elements.spectatorsPanel.classList.remove('hidden');
@@ -96,6 +109,9 @@ export function renderPlayers(playersData, isRevealed, animate = false) {
     activePlayers.forEach((player, index) => {
         const el = document.createElement('div');
         el.className = 'player';
+        if (resetAnim) {
+            el.style.animation = `shuffleDeal 2s cubic-bezier(0.16, 1, 0.3, 1) ${index * 400}ms backwards`;
+        }
 
         const card = document.createElement('div');
         card.className = 'player-card';
@@ -109,10 +125,19 @@ export function renderPlayers(playersData, isRevealed, animate = false) {
                         card.classList.remove('has-voted');
                         card.classList.add('revealed');
                         card.innerText = player.vote;
+                        if (FIB_COLORS[player.vote]) {
+                            card.style.backgroundColor = FIB_COLORS[player.vote].bg;
+                            card.style.color = FIB_COLORS[player.vote].text;
+                        }
                     }, index * 150 + 100);
                 } else {
                     card.classList.add('revealed');
+                    card.classList.add('no-anim');
                     card.innerText = player.vote;
+                    if (FIB_COLORS[player.vote]) {
+                        card.style.backgroundColor = FIB_COLORS[player.vote].bg;
+                        card.style.color = FIB_COLORS[player.vote].text;
+                    }
                 }
             } else {
                 card.classList.add('has-voted');
@@ -123,11 +148,11 @@ export function renderPlayers(playersData, isRevealed, animate = false) {
                 if (animate) {
                     setTimeout(() => {
                         card.classList.add('revealed');
-                        card.innerText = '😟';
+                        card.innerText = '😴';
                     }, index * 150 + 100);
                 } else {
                     card.classList.add('revealed');
-                    card.innerText = '😟';
+                    card.innerText = '😴';
                 }
             }
         }
