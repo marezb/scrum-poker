@@ -1,4 +1,4 @@
-import { POKER_CARDS } from './config.js';
+import { POKER_CARDS } from './config.js?v=2';
 
 export function calculateAverage(playersData) {
     let sum = 0;
@@ -42,7 +42,7 @@ export function getClosestFibonacci(average) {
 
 export function checkAutoRevealCondition(playersData) {
     const activePlayers = Object.values(playersData).filter(p => p.role !== 'spectator');
-    if (activePlayers.length > 0 && activePlayers.every(p => p.vote !== null)) {
+    if (activePlayers.length > 0 && activePlayers.every(p => p.vote != null && p.vote !== undefined)) {
         return true;
     }
     return false;
