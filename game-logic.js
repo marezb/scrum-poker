@@ -42,7 +42,7 @@ export function getClosestFibonacci(average) {
 
 export function checkAutoRevealCondition(playersData) {
     const activePlayers = Object.values(playersData).filter(p => p.role !== 'spectator');
-    if (activePlayers.length > 0 && activePlayers.every(p => p.vote != null && p.vote !== undefined)) {
+    if (activePlayers.length >= 2 && activePlayers.every(p => p.vote != null)) {
         return true;
     }
     return false;
