@@ -4,3 +4,12 @@ export const ADMIN_PASSWORD = "AskMarekForApproval";
 export function generateId(length = 10) {
     return Math.random().toString(36).substring(2, 2 + length);
 }
+
+export const firebaseConfig = {
+    apiKey: "AIzaSyAmm7M5bg8JMgSFFsqBAQ3hyIqN3qRcR1s",
+    authDomain: "scrum-poker-7d690.firebaseapp.com",
+    projectId: "scrum-poker-7d690",
+    storageBucket: "scrum-poker-7d690.firebasestorage.app",
+    messagingSenderId: "1009596685618",
+    appId: "1:1009596685618:web:32c246a48e0df680004b2b"
+};

@@ -1,4 +1,4 @@
-import { generateId, ADMIN_PASSWORD, POKER_CARDS } from './config.js?v=2';
+import { generateId, ADMIN_PASSWORD, POKER_CARDS, firebaseConfig } from './config.js?v=2';
 import { elements, screens, showScreen, renderDeck, updateDeckSelection, renderPlayers } from './ui.js?v=2';
 import { calculateAverage, getClosestFibonacci, checkAutoRevealCondition } from './game-logic.js?v=2';
 import * as db from './firebase-service.js?v=2';
@@ -14,29 +14,12 @@ let currentName = localStorage.getItem('sp_playerName') || '';
 let currentRole = localStorage.getItem('sp_playerRole') || 'player';
 let currentRoomId = null;
 let isRevealed = false;
-let isOfflineMode = localStorage.getItem('sp_offlineMode') === 'true';
 let playersData = {};
 
 // === Initialization ===
 function init() {
-    const savedConfig = localStorage.getItem('sp_firebaseConfig');
-    if (!savedConfig && !isOfflineMode) {
-        showScreen('setup');
-        const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.get('room')) {
-            elements.roomIdInput.value = urlParams.get('room');
-        }
-        return;
-    }
-
-    if (isOfflineMode) {
-        setupOfflineMode();
-        return;
-    }
-
     try {
-        const config = JSON.parse(savedConfig);
-        if (!db.initFirebase(config)) throw new Error("Init failed");
+        if (!db.initFirebase(firebaseConfig)) throw new Error("Init failed");
 
         elements.playerNameInput.value = currentName;
         elements.spectatorModeInput.checked = (currentRole === 'spectator');
@@ -62,49 +45,10 @@ function init() {
             db.fetchActiveRooms(renderActiveRooms);
         }
     } catch (e) {
-        alert("Firebase configuration error. Ensure the pasted JSON is valid.");
-        showScreen('setup');
     }
 }
 
-function setupOfflineMode() {
-    elements.playerNameInput.value = currentName;
-    elements.spectatorModeInput.checked = (currentRole === 'spectator');
-    const urlParams = new URLSearchParams(window.location.search);
-    const urlRoom = urlParams.get('room');
-    if (urlRoom && currentName) {
-        const savedPassword = localStorage.getItem('sp_roomPassword');
-        if (savedPassword === ADMIN_PASSWORD) {
-            joinRoomOffline(urlRoom);
-            return;
-        }
-    }
-    showScreen('login');
-}
 
-// === Setup Handlers ===
-elements.saveConfigBtn.addEventListener('click', () => {
-    const val = elements.firebaseConfigInput.value.trim();
-    if (!val) { alert("Please provide configuration JSON."); return; }
-    try {
-        JSON.parse(val);
-        localStorage.setItem('sp_firebaseConfig', val);
-        localStorage.setItem('sp_offlineMode', 'false');
-        window.location.reload();
-    } catch(e) { alert("Invalid JSON format"); }
-});
-
-elements.demoModeBtn.addEventListener('click', () => {
-    localStorage.setItem('sp_offlineMode', 'true');
-    window.location.reload();
-});
-
-elements.clearConfigBtn.addEventListener('click', () => {
-    localStorage.removeItem('sp_firebaseConfig');
-    localStorage.removeItem('sp_offlineMode');
-    elements.firebaseConfigInput.value = '';
-    alert("Configuration cleared.");
-});
 
 // === Login Handlers ===
 elements.joinForm.addEventListener('submit', async (e) => {

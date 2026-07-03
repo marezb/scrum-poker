@@ -14,12 +14,7 @@ export const elements = {
     activeRoomsList: document.getElementById('active-rooms-list'),
     joinBtn: document.getElementById('join-btn'),
     
-    // Setup Screen
-    firebaseConfigInput: document.getElementById('firebase-config-input'),
-    saveConfigBtn: document.getElementById('save-config-btn'),
-    demoModeBtn: document.getElementById('demo-mode-btn'),
-    clearConfigBtn: document.getElementById('clear-config-btn'),
-    
+
     // Game Screen
     displayRoomId: document.getElementById('display-room-id'),
     copyLinkBtn: document.getElementById('copy-link-btn'),
