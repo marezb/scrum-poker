@@ -57,33 +57,38 @@ function init() {
 elements.joinForm.addEventListener('submit', async (e) => {
     e.preventDefault();
 
-    const urlParams = new URLSearchParams(window.location.search);
-    let room = urlParams.get('room');
+    try {
+        const urlParams = new URLSearchParams(window.location.search);
+        let room = urlParams.get('room');
 
-    if (!room) {
-        const password = elements.passwordInput.value.trim();
-        if (password !== ADMIN_PASSWORD) {
-            alert("Access Denied: Incorrect password. Please Ask Marek for approval.");
-            return;
+        if (!room) {
+            const password = elements.passwordInput.value.trim();
+            if (password !== ADMIN_PASSWORD) {
+                alert("Access Denied: Incorrect password. Please Ask Marek for approval.");
+                return;
+            }
+            room = generateId(8).toUpperCase();
+            
+            if (!isOfflineMode) {
+                await db.createRoom(room);
+                localStorage.setItem(`sp_admin_${room}`, "true");
+            }
         }
-        room = generateId(8).toUpperCase();
-        
-        if (!isOfflineMode) {
-            await db.createRoom(room);
-            localStorage.setItem(`sp_admin_${room}`, "true");
+
+        currentName = elements.playerNameInput.value.trim();
+        currentRole = elements.spectatorModeInput.checked ? 'spectator' : 'player';
+
+        localStorage.setItem('sp_playerName', currentName);
+        localStorage.setItem('sp_playerRole', currentRole);
+
+        if (isOfflineMode) {
+            joinRoomOffline(room);
+        } else {
+            joinRoomOnline(room);
         }
-    }
-
-    currentName = elements.playerNameInput.value.trim();
-    currentRole = elements.spectatorModeInput.checked ? 'spectator' : 'player';
-
-    localStorage.setItem('sp_playerName', currentName);
-    localStorage.setItem('sp_playerRole', currentRole);
-
-    if (isOfflineMode) {
-        joinRoomOffline(room);
-    } else {
-        joinRoomOnline(room);
+    } catch (err) {
+        console.error("Failed to create/join room:", err);
+        alert("Error connecting to the server. Please try again or check your connection.");
     }
 });
 
