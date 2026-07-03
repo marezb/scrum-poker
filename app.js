@@ -14,6 +14,7 @@ let currentName = localStorage.getItem('sp_playerName') || '';
 let currentRole = localStorage.getItem('sp_playerRole') || 'player';
 let currentRoomId = null;
 let isRevealed = false;
+let isOfflineMode = false;
 let playersData = {};
 
 // === Initialization ===
@@ -45,6 +46,8 @@ function init() {
             db.fetchActiveRooms(renderActiveRooms);
         }
     } catch (e) {
+        console.error("Init error:", e);
+        showScreen('login');
     }
 }
 

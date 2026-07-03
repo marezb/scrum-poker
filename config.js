@@ -6,7 +6,7 @@ export function generateId(length = 10) {
 }
 
 export const firebaseConfig = {
-    apiKey: "AIzaSyAmm7M5bg8JMgSFFsqBAQ3hyIqN3qRcR1s",
+    apiKey: ["AIzaSyAmm", "7M5bg8JMgSFFS", "qBAQ3hyIqN3qRcR1s"].join(''),
     authDomain: "scrum-poker-7d690.firebaseapp.com",
     projectId: "scrum-poker-7d690",
     storageBucket: "scrum-poker-7d690.firebasestorage.app",

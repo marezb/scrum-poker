@@ -1,4 +1,4 @@
-import { POKER_CARDS } from './config.js';
+import { POKER_CARDS } from './config.js?v=2';
 
 export const elements = {
     // Login Screen
@@ -40,7 +40,7 @@ export const screens = {
 };
 
 export function showScreen(screenId) {
-    Object.values(screens).forEach(s => s.classList.remove('active'));
+    Object.values(screens).forEach(s => { if (s) s.classList.remove('active'); });
     if (screens[screenId]) {
         screens[screenId].classList.add('active');
     }
