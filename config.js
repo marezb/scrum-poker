@@ -1,5 +1,14 @@
 export const POKER_CARDS = ['0.5', '1', '2', '3', '5', '8', '13', '21', '34', '55', '89', '?'];
-export const ADMIN_PASSWORD = "AskMarekForApproval";
+export const ADMIN_PASSWORD_HASH = "7183d83771679998019378c5c8b847e40f13ecd0ef2e7b3610650d27b2ff32a8";
+
+export async function verifyPassword(password) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(password);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    return hashHex === ADMIN_PASSWORD_HASH;
+}
 
 export function generateId(length = 10) {
     return Math.random().toString(36).substring(2, 2 + length);

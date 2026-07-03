@@ -86,7 +86,7 @@ export function renderPlayers(playersData, isRevealed, animate = false) {
         elements.spectatorsPanel.classList.remove('hidden');
         spectators.forEach(spec => {
             const li = document.createElement('li');
-            li.innerText = spec.name;
+            li.innerText = spec.name || 'Anonymous';
             elements.spectatorsList.appendChild(li);
         });
     } else {
@@ -134,7 +134,7 @@ export function renderPlayers(playersData, isRevealed, animate = false) {
 
         const name = document.createElement('div');
         name.className = 'player-name';
-        name.innerText = player.name;
+        name.innerText = player.name || 'Anonymous';
 
         el.appendChild(card);
         el.appendChild(name);

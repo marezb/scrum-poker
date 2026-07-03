@@ -1,4 +1,4 @@
-import { generateId, ADMIN_PASSWORD, POKER_CARDS, firebaseConfig } from './config.js?v=2';
+import { generateId, verifyPassword, POKER_CARDS, firebaseConfig } from './config.js?v=2';
 import { elements, screens, showScreen, renderDeck, updateDeckSelection, renderPlayers } from './ui.js?v=2';
 import { calculateAverage, getClosestFibonacci, checkAutoRevealCondition } from './game-logic.js?v=2';
 import * as db from './firebase-service.js?v=2';
@@ -42,8 +42,6 @@ function init() {
             }
         } else {
             showScreen('login');
-            elements.adminDashboard.classList.remove('hidden');
-            db.fetchActiveRooms(renderActiveRooms);
         }
     } catch (e) {
         console.error("Init error:", e);
@@ -63,12 +61,17 @@ elements.joinForm.addEventListener('submit', async (e) => {
 
         if (!room) {
             const password = elements.passwordInput.value.trim();
-            if (password !== ADMIN_PASSWORD) {
+            const isValid = await verifyPassword(password);
+            if (!isValid) {
                 alert("Access Denied: Incorrect password. Please Ask Marek for approval.");
                 return;
             }
             room = generateId(8).toUpperCase();
             
+            // Show admin dashboard after successful authentication
+            elements.adminDashboard.classList.remove('hidden');
+            db.fetchActiveRooms(renderActiveRooms);
+
             if (!isOfflineMode) {
                 await db.createRoom(room);
                 localStorage.setItem(`sp_admin_${room}`, "true");
@@ -123,13 +126,16 @@ function renderActiveRooms(activeRooms) {
     });
 
     document.querySelectorAll('.close-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
+        btn.addEventListener('click', async (e) => {
             e.preventDefault();
             const pwd = prompt("Enter Admin Password to close this room:");
-            if (pwd === ADMIN_PASSWORD) {
-                db.closeRoom(e.target.dataset.room);
-            } else if (pwd !== null) {
-                alert("Access Denied");
+            if (pwd !== null) {
+                const isValid = await verifyPassword(pwd);
+                if (isValid) {
+                    db.closeRoom(e.target.dataset.room);
+                } else {
+                    alert("Access Denied");
+                }
             }
         });
     });
@@ -210,7 +216,14 @@ function joinRoomOnline(roomId) {
 
     db.joinRoom(roomId, currentPlayerId, playerData, {
         onPlayersChange: (data) => {
-            playersData = data;
+            // Filter out corrupted/ghost entries (missing name)
+            const cleanData = {};
+            for (const [id, player] of Object.entries(data)) {
+                if (player && player.name) {
+                    cleanData[id] = player;
+                }
+            }
+            playersData = cleanData;
             renderPlayers(playersData, isRevealed);
             updateDeckSelection(playersData[currentPlayerId]?.vote, isRevealed);
             if (!isRevealed && checkAutoRevealCondition(playersData)) {
@@ -307,7 +320,7 @@ function handleCalculateResults() {
         const sumLine = `${res.equationParts.join(' + ')} = ${res.sum}`;
         const divLine = `${res.sum} / ${res.count} = ${res.average.toFixed(1)}`;
         elements.statsEquation.innerHTML = `Calculation:<br>${sumLine}<br>${divLine}`;
-        elements.statsClosest.innerHTML = `Closest Fibonacci:<br><strong>${getClosestFibonacci(res.average)}</strong>`;
+        elements.statsClosest.innerHTML = `Closest Fibonacci: <strong>${getClosestFibonacci(res.average)}</strong>`;
     } else {
         elements.averageScoreDisplay.innerText = "-";
         elements.statsEquation.innerHTML = "No numeric votes cast.";
