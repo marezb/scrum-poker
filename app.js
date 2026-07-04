@@ -46,6 +46,7 @@ let isRevealed = false;
 let isOfflineMode = localStorage.getItem('sp_offlineMode') === 'true';
 let playersData = {};
 let currentRoundNumber = 1;
+let timerInterval = null;
 
 // === Initialization ===
 function init() {
@@ -61,9 +62,22 @@ function init() {
         if (urlRoom) {
             elements.roomIdInput.value = urlRoom;
             elements.passwordGroup.classList.add('hidden');
+            elements.joinAsAdminGroup.classList.remove('hidden');
             elements.spectatorGroup.classList.remove('hidden');
             elements.roomIdGroup.classList.remove('hidden');
             elements.joinBtn.innerText = "Join Game";
+
+            if (!isOfflineMode && db.getRoomMetadata) {
+                db.getRoomMetadata(urlRoom).then(snapshot => {
+                    if (snapshot.exists()) {
+                        const meta = snapshot.val();
+                        if (meta.createdBy) {
+                            elements.roomCreatorInfo.innerText = `Room created by: ${meta.createdBy}`;
+                            elements.roomCreatorInfo.classList.remove('hidden');
+                        }
+                    }
+                }).catch(err => console.error("Could not fetch room metadata", err));
+            }
 
             showScreen('login');
         } else {
@@ -78,6 +92,11 @@ function init() {
 
 
 // === Login Handlers ===
+elements.showAdminLoginBtn.addEventListener('click', () => {
+    elements.passwordGroup.classList.remove('hidden');
+    elements.joinAsAdminGroup.classList.add('hidden');
+});
+
 elements.passwordInput.addEventListener('input', async (e) => {
     const pwd = e.target.value.trim();
     if (pwd.length > 0) {
@@ -113,13 +132,24 @@ elements.joinForm.addEventListener('submit', async (e) => {
             elements.adminDashboard.classList.remove('hidden');
             if (db && db.fetchActiveRooms) db.fetchActiveRooms(renderActiveRooms);
 
+            currentName = elements.playerNameInput.value.trim();
             if (!isOfflineMode) {
-                await db.createRoom(room);
+                await db.createRoom(room, currentName);
                 localStorage.setItem(`sp_admin_${room}`, "true");
             }
+        } else {
+            if (!elements.passwordGroup.classList.contains('hidden') && elements.passwordInput.value.trim().length > 0) {
+                const isValid = await verifyPassword(elements.passwordInput.value.trim());
+                if (isValid) {
+                    localStorage.setItem(`sp_admin_${room}`, "true");
+                } else {
+                    alert("Access Denied: Incorrect admin password.");
+                    return;
+                }
+            }
+            currentName = elements.playerNameInput.value.trim();
         }
 
-        currentName = elements.playerNameInput.value.trim();
         currentRole = elements.spectatorModeInput.checked ? 'spectator' : 'player';
 
         localStorage.setItem('sp_playerName', currentName);
@@ -164,7 +194,7 @@ function renderActiveRooms(activeRooms) {
         li.innerHTML = `
             <div style="display: flex; flex-direction: column; gap: 4px;">
                 <span>Room: ${roomId}</span>
-                <span style="font-size: 0.75rem; color: var(--text-muted);">Last active: ${lastActiveText}</span>
+                <span style="font-size: 0.75rem; color: var(--text-muted);">Created by: ${room.createdBy} | Last active: ${lastActiveText}</span>
             </div>
             <div class="room-actions">
                 <button class="btn icon-btn copy-btn" data-room="${roomId}" title="Copy Link">Copy Link</button>
@@ -233,8 +263,22 @@ elements.resetBtn.addEventListener('click', () => {
         updateGameStateOffline(false, null, currentName, true);
     } else {
         db.clearAllVotes(currentRoomId, playersData, currentName);
+        const autoTimer = parseInt(elements.autoTimerInput.value) || 0;
+        if (autoTimer > 0) {
+            if (db.setTimer) db.setTimer(currentRoomId, autoTimer, currentName);
+        } else {
+            if (db.clearTimer) db.clearTimer(currentRoomId);
+        }
     }
 });
+
+elements.autoTimerInput.addEventListener('change', (e) => {
+    if (!currentRoomId || isOfflineMode) return;
+    const autoTimer = parseInt(e.target.value) || 0;
+    if (db.setAutoTimer) db.setAutoTimer(currentRoomId, autoTimer);
+});
+
+// Timer buttons removed
 
 elements.closeRoomBtn.addEventListener('click', () => {
     if (!currentRoomId || isOfflineMode) return;
@@ -306,6 +350,46 @@ function joinRoomOnline(roomId) {
             const resetAnim = !isRevealed && wasRevealed;
             updateUIState(state.revealedBy, state.resetBy);
             renderPlayers(playersData, isRevealed, animate, resetAnim);
+
+            if (state.autoTimer !== undefined && document.activeElement !== elements.autoTimerInput) {
+                elements.autoTimerInput.value = state.autoTimer === 0 ? '' : state.autoTimer;
+            }
+
+            clearInterval(timerInterval);
+            if (state.timerEndsAt && !isRevealed) {
+                elements.timerDisplay.classList.remove('hidden');
+                elements.resetControlsGroup.classList.add('hidden');
+
+                if (state.timerStartedBy) {
+                    elements.revealedByInfo.innerText = `${state.timerStartedBy} started countdown`;
+                    elements.revealedByInfo.classList.remove('hidden');
+                }
+
+                timerInterval = setInterval(() => {
+                    const remaining = Math.max(0, Math.ceil((state.timerEndsAt - Date.now()) / 1000));
+                    elements.timerDisplay.innerText = `${remaining}s`;
+                    
+                    if (remaining <= 0) {
+                        clearInterval(timerInterval);
+                        if (!isRevealed) {
+                            const activeIds = Object.keys(playersData).filter(id => playersData[id].role !== 'spectator').sort();
+                            if (activeIds[0] === currentPlayerId || (activeIds.length === 0 && localStorage.getItem(`sp_admin_${currentRoomId}`) === "true")) {
+                                const res = calculateAverage(playersData);
+                                if (res) {
+                                    db.addRoundHistory(currentRoomId, getClosestFibonacci(res.average));
+                                }
+                                db.updateRevealedState(currentRoomId, true, "System (Time Out)");
+                            }
+                        }
+                    }
+                }, 100);
+            } else {
+                elements.timerDisplay.classList.add('hidden');
+                elements.timerDisplay.innerText = '';
+                if (isRevealed) {
+                    elements.resetControlsGroup.classList.remove('hidden');
+                }
+            }
         },
         onRoomClosed: () => {
             alert("This room has been closed by the admin.");
@@ -373,7 +457,7 @@ function updateGameStateOffline(animate = false, revealedBy = null, resetBy = nu
 function updateUIState(revealedBy = null, resetBy = null) {
     if (isRevealed) {
         elements.revealBtn.classList.add('hidden');
-        elements.resetBtn.classList.remove('hidden');
+        elements.resetControlsGroup.classList.remove('hidden');
         
         elements.resultsArea.classList.remove('fade-out');
         elements.statsPanel.classList.remove('fade-out');
@@ -390,7 +474,7 @@ function updateUIState(revealedBy = null, resetBy = null) {
         handleCalculateResults();
     } else {
         elements.revealBtn.classList.remove('hidden');
-        elements.resetBtn.classList.add('hidden');
+        elements.resetControlsGroup.classList.add('hidden');
         
         elements.resultsArea.classList.add('fade-out');
         elements.statsPanel.classList.add('fade-out');
