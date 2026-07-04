@@ -382,7 +382,21 @@ function joinRoomOnline(roomId, roomName = null) {
             const animate = isRevealed && !wasRevealed;
             const resetAnim = !isRevealed && wasRevealed;
             updateUIState(state.revealedBy, state.resetBy);
-            renderPlayers(playersData, isRevealed, animate, resetAnim);
+            
+            if (animate) {
+                renderPlayers(playersData, true, true, false, false, false);
+                const playerCount = Object.keys(playersData).filter(id => playersData[id] && playersData[id].role !== 'spectator').length;
+                const revealDuration = playerCount * 150 + 400;
+                
+                if (window.sortTimeout) clearTimeout(window.sortTimeout);
+                window.sortTimeout = setTimeout(() => {
+                    if (isRevealed) {
+                        renderPlayers(playersData, true, false, false, true, true);
+                    }
+                }, revealDuration);
+            } else {
+                renderPlayers(playersData, isRevealed, false, resetAnim);
+            }
 
             if (state.autoTimer !== undefined && document.activeElement !== elements.autoTimerInput) {
                 elements.autoTimerInput.value = state.autoTimer === 0 ? '' : state.autoTimer;
@@ -483,7 +497,21 @@ function updateGameStateOffline(animate = false, revealedBy = null, resetBy = nu
             }
         });
     }
-    renderPlayers(playersData, isRevealed, animate, resetAnim);
+    if (animate) {
+        renderPlayers(playersData, true, true, false, false, false);
+        const playerCount = Object.keys(playersData).filter(id => playersData[id] && playersData[id].role !== 'spectator').length;
+        const revealDuration = playerCount * 150 + 400;
+        
+        if (window.sortTimeout) clearTimeout(window.sortTimeout);
+        window.sortTimeout = setTimeout(() => {
+            if (isRevealed) {
+                renderPlayers(playersData, true, false, false, true, true);
+            }
+        }, revealDuration);
+    } else {
+        renderPlayers(playersData, isRevealed, false, resetAnim);
+    }
+
     updateDeckSelection(playersData[currentPlayerId]?.vote, isRevealed);
 }
 
