@@ -1,7 +1,7 @@
-import { generateId, verifyPassword, POKER_CARDS, FIB_COLORS, firebaseConfig } from './config.js?v=18';
-import { elements, screens, showScreen, renderDeck, updateDeckSelection, renderPlayers } from './ui.js?v=18';
-import { calculateAverage, getClosestFibonacci, checkAutoRevealCondition } from './game-logic.js?v=18';
-import * as db from './firebase-service.js?v=18';
+import { generateId, verifyPassword, POKER_CARDS, FIB_COLORS, firebaseConfig } from './config.js?v=26';
+import { elements, screens, showScreen, renderDeck, updateDeckSelection, renderPlayers } from './ui.js?v=26';
+import { calculateAverage, getClosestFibonacci, checkAutoRevealCondition } from './game-logic.js?v=26';
+import * as db from './firebase-service.js?v=26';
 
 function spawnRestingConfetti() {
     const colors = ['#26ccff', '#a25afd', '#ff5e7e', '#88ff5a', '#fcff42', '#ffa62d', '#ff36ff'];
@@ -169,8 +169,30 @@ elements.joinForm.addEventListener('submit', async (e) => {
         }
     } catch (err) {
         console.error("Failed to create/join room:", err);
-        document.body.innerHTML = `<h1 style="color:red;z-index:9999;position:absolute;">ERROR: ${err.message} ${err.stack}</h1>`;
-        alert("Error connecting to the server. Please try again or check your connection.");
+        // Show error overlay without destroying the DOM
+        let overlay = document.getElementById('error-overlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'error-overlay';
+            overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+            document.body.appendChild(overlay);
+        }
+        const msg = document.createElement('div');
+        msg.style.cssText = 'background:#1e293b;border:1px solid #ef4444;border-radius:16px;padding:30px;max-width:500px;text-align:center;';
+        const title = document.createElement('h2');
+        title.style.cssText = 'color:#ef4444;margin-bottom:15px;';
+        title.textContent = 'Connection Error';
+        const detail = document.createElement('p');
+        detail.style.cssText = 'color:#94a3b8;margin-bottom:20px;';
+        detail.textContent = err.message || 'Unknown error';
+        const btn = document.createElement('button');
+        btn.textContent = 'Try Again';
+        btn.style.cssText = 'padding:10px 24px;border-radius:8px;border:none;background:#3b82f6;color:white;cursor:pointer;font-size:1rem;';
+        btn.addEventListener('click', () => { overlay.remove(); });
+        msg.appendChild(title);
+        msg.appendChild(detail);
+        msg.appendChild(btn);
+        overlay.appendChild(msg);
     }
 });
 
@@ -198,17 +220,44 @@ function renderActiveRooms(activeRooms) {
         const lastActiveText = room.lastActive ? formatTimeAgo(room.lastActive) : 'Unknown';
         const displayName = room.roomName ? room.roomName : roomId;
         
+        // Build DOM safely to prevent XSS from user-controlled data
         const li = document.createElement('li');
-        li.innerHTML = `
-            <div style="display: flex; flex-direction: column; gap: 4px;">
-                <span style="font-weight: 600;">${displayName}</span>
-                <span style="font-size: 0.75rem; color: var(--text-muted);">ID: ${roomId} | Created by: ${room.createdBy} | Last active: ${lastActiveText}</span>
-            </div>
-            <div class="room-actions">
-                <button class="btn icon-btn copy-btn" data-room="${roomId}" title="Copy Link">Copy Link</button>
-                <button class="btn icon-btn close-btn" data-room="${roomId}" title="Close Room" style="color: #ef4444;">Close</button>
-            </div>
-        `;
+        
+        const infoDiv = document.createElement('div');
+        infoDiv.style.cssText = 'display: flex; flex-direction: column; gap: 4px;';
+        
+        const nameSpan = document.createElement('span');
+        nameSpan.style.fontWeight = '600';
+        nameSpan.textContent = displayName;
+        
+        const detailSpan = document.createElement('span');
+        detailSpan.style.cssText = 'font-size: 0.75rem; color: var(--text-muted);';
+        detailSpan.textContent = `ID: ${roomId} | Created by: ${room.createdBy} | Last active: ${lastActiveText}`;
+        
+        infoDiv.appendChild(nameSpan);
+        infoDiv.appendChild(detailSpan);
+        
+        const actionsDiv = document.createElement('div');
+        actionsDiv.className = 'room-actions';
+        
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'btn icon-btn copy-btn';
+        copyBtn.dataset.room = roomId;
+        copyBtn.title = 'Copy Link';
+        copyBtn.textContent = 'Copy Link';
+        
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'btn icon-btn close-btn';
+        closeBtn.dataset.room = roomId;
+        closeBtn.title = 'Close Room';
+        closeBtn.style.color = '#ef4444';
+        closeBtn.textContent = 'Close';
+        
+        actionsDiv.appendChild(copyBtn);
+        actionsDiv.appendChild(closeBtn);
+        
+        li.appendChild(infoDiv);
+        li.appendChild(actionsDiv);
         elements.activeRoomsList.appendChild(li);
     });
 
@@ -236,8 +285,8 @@ function renderActiveRooms(activeRooms) {
 
 elements.editRoomNameBtn.addEventListener('click', () => {
     if (!currentRoomId || isOfflineMode) return;
-    const currentName = elements.displayRoomId.innerText === currentRoomId ? "" : elements.displayRoomId.innerText;
-    const newName = prompt("Enter new room name:", currentName);
+    const currentDisplayName = elements.displayRoomId.innerText === currentRoomId ? "" : elements.displayRoomId.innerText;
+    const newName = prompt("Enter new room name:", currentDisplayName);
     
     if (newName !== null) {
         const trimmedName = newName.trim();
@@ -266,6 +315,17 @@ elements.copyLinkBtn.addEventListener('click', () => {
     });
 });
 
+// Helper: collect votes map from playersData for history storage
+function collectVotes() {
+    const votes = {};
+    Object.values(playersData).forEach(p => {
+        if (p.role !== 'spectator') {
+            votes[p.name || 'Anonymous'] = p.vote || null;
+        }
+    });
+    return votes;
+}
+
 elements.revealBtn.addEventListener('click', () => {
     if (!currentRoomId) return;
     if (isOfflineMode) {
@@ -274,9 +334,12 @@ elements.revealBtn.addEventListener('click', () => {
     } else {
         const res = calculateAverage(playersData);
         if (res) {
-            db.addRoundHistory(currentRoomId, getClosestFibonacci(res.average));
+            const storyId = elements.storyIdInput.value.trim() || null;
+            db.addRoundHistory(currentRoomId, getClosestFibonacci(res.average), collectVotes(), storyId);
         }
         db.updateRevealedState(currentRoomId, true, currentName);
+        // Clear storyId in Firebase for future state syncs
+        if (db.setStoryId) db.setStoryId(currentRoomId, '');
     }
 });
 
@@ -297,13 +360,46 @@ elements.resetBtn.addEventListener('click', () => {
     }
 });
 
+// Timer: only allow spinner arrows, no keyboard typing
+elements.autoTimerInput.addEventListener('keydown', (e) => {
+    // Allow ArrowUp, ArrowDown, Tab only
+    if (!['ArrowUp', 'ArrowDown', 'Tab'].includes(e.key)) {
+        e.preventDefault();
+    }
+});
+
+// Prevent text selection on click — just show value, no cursor
+elements.autoTimerInput.addEventListener('focus', () => {
+    // Deselect any text selection
+    const el = elements.autoTimerInput;
+    if (el.setSelectionRange) {
+        try { el.setSelectionRange(el.value.length, el.value.length); } catch(e) {}
+    }
+});
+
 elements.autoTimerInput.addEventListener('change', (e) => {
+    let val = parseInt(e.target.value) || 0;
+    // Clamp: round to nearest 10, min 0 max 60
+    val = Math.round(val / 10) * 10;
+    if (val <= 0) {
+        e.target.value = '';
+        val = 0;
+    } else {
+        if (val > 60) val = 60;
+        e.target.value = val;
+    }
     if (!currentRoomId || isOfflineMode) return;
-    const autoTimer = parseInt(e.target.value) || 0;
-    if (db.setAutoTimer) db.setAutoTimer(currentRoomId, autoTimer);
+    if (db.setAutoTimer) db.setAutoTimer(currentRoomId, val);
 });
 
 // Timer buttons removed
+
+// Story ID sync: broadcast to all players on blur (leaving the field)
+elements.storyIdInput.addEventListener('blur', () => {
+    if (!currentRoomId || isOfflineMode) return;
+    const storyId = elements.storyIdInput.value.trim();
+    if (db.setStoryId) db.setStoryId(currentRoomId, storyId);
+});
 
 elements.closeRoomBtn.addEventListener('click', () => {
     if (!currentRoomId || isOfflineMode) return;
@@ -338,6 +434,7 @@ function joinRoomOnline(roomId, roomName = null) {
     window.history.pushState({}, '', url);
 
     showScreen('game');
+    document.getElementById('player-greeting').textContent = `Hi ${currentName}!`;
     if (currentRole === 'spectator') {
         elements.deckArea.classList.add('hidden');
     } else {
@@ -370,10 +467,13 @@ function joinRoomOnline(roomId, roomName = null) {
                 if (activeIds[0] === currentPlayerId) {
                     const res = calculateAverage(playersData);
                     if (res) {
-                        db.addRoundHistory(currentRoomId, getClosestFibonacci(res.average));
+                        const storyId = elements.storyIdInput.value.trim() || null;
+                        db.addRoundHistory(currentRoomId, getClosestFibonacci(res.average), collectVotes(), storyId);
                     }
                 }
                 db.updateRevealedState(currentRoomId, true, "System (Auto)");
+                // Clear storyId in Firebase (only first player to avoid race)
+                if (activeIds[0] === currentPlayerId && db.setStoryId) db.setStoryId(currentRoomId, '');
             }
         },
         onStateChange: (state) => {
@@ -384,6 +484,8 @@ function joinRoomOnline(roomId, roomName = null) {
             updateUIState(state.revealedBy, state.resetBy);
             
             if (animate) {
+                // Clear story input on reveal for ALL players (local clear, no race condition)
+                elements.storyIdInput.value = '';
                 renderPlayers(playersData, true, true, false, false, false);
                 const playerCount = Object.keys(playersData).filter(id => playersData[id] && playersData[id].role !== 'spectator').length;
                 const revealDuration = playerCount * 150 + 400;
@@ -400,6 +502,11 @@ function joinRoomOnline(roomId, roomName = null) {
 
             if (state.autoTimer !== undefined && document.activeElement !== elements.autoTimerInput) {
                 elements.autoTimerInput.value = state.autoTimer === 0 ? '' : state.autoTimer;
+            }
+
+            // Sync storyId from other players (skip during reveal - already cleared locally)
+            if (!animate && state.storyId !== undefined && document.activeElement !== elements.storyIdInput) {
+                elements.storyIdInput.value = state.storyId || '';
             }
 
             clearInterval(timerInterval);
@@ -423,9 +530,12 @@ function joinRoomOnline(roomId, roomName = null) {
                             if (activeIds[0] === currentPlayerId || (activeIds.length === 0 && localStorage.getItem(`sp_admin_${currentRoomId}`) === "true")) {
                                 const res = calculateAverage(playersData);
                                 if (res) {
-                                    db.addRoundHistory(currentRoomId, getClosestFibonacci(res.average));
+                                    const storyId = elements.storyIdInput.value.trim() || null;
+                                    db.addRoundHistory(currentRoomId, getClosestFibonacci(res.average), collectVotes(), storyId);
                                 }
                                 db.updateRevealedState(currentRoomId, true, "System (Time Out)");
+                                // Clear storyId in Firebase for future state syncs
+                                if (db.setStoryId) db.setStoryId(currentRoomId, '');
                             }
                         }
                     }
@@ -452,6 +562,7 @@ function joinRoomOffline(roomId) {
     currentRoomId = roomId;
     elements.displayRoomId.innerText = roomId + " (Offline)";
     showScreen('game');
+    document.getElementById('player-greeting').textContent = `Hi ${currentName || 'there'}!`;
     
     if (currentRole === 'spectator') {
         elements.deckArea.classList.add('hidden');
@@ -498,6 +609,8 @@ function updateGameStateOffline(animate = false, revealedBy = null, resetBy = nu
         });
     }
     if (animate) {
+        // Clear story input on reveal (same as online onStateChange)
+        elements.storyIdInput.value = '';
         renderPlayers(playersData, true, true, false, false, false);
         const playerCount = Object.keys(playersData).filter(id => playersData[id] && playersData[id].role !== 'spectator').length;
         const revealDuration = playerCount * 150 + 400;
@@ -565,25 +678,121 @@ function updateUIState(revealedBy = null, resetBy = null) {
 function renderHistory(historyObj) {
     elements.historyList.innerHTML = '';
     const historyEntries = Object.values(historyObj).sort((a, b) => a.timestamp - b.timestamp);
-    if (historyEntries.length > 0) {
+    const roundEntries = historyEntries.filter(e => e.type === 'round');
+
+    if (roundEntries.length > 0) {
         elements.historyPanel.classList.remove('hidden');
         let roundCounter = 1;
-        historyEntries.forEach((entry) => {
-            if (entry.type === 'new_round') return; // ignore legacy new_round entries
+
+        roundEntries.forEach((entry) => {
             const li = document.createElement('li');
-            let scoreText = entry.score;
-            let bgStyle = '';
-            let textStyle = '';
-            if (FIB_COLORS[entry.score]) {
-                bgStyle = `background-color: ${FIB_COLORS[entry.score].bg};`;
-                textStyle = `color: ${FIB_COLORS[entry.score].text};`;
+            li.className = 'history-round';
+
+            // Header row (always visible)
+            const header = document.createElement('div');
+            header.className = 'history-round-header';
+
+            const label = document.createElement('span');
+            label.className = 'history-round-label';
+            let labelText = `Round ${roundCounter}`;
+            if (entry.storyId) {
+                labelText += ` `;
+                const storySpan = document.createElement('span');
+                storySpan.className = 'story-tag';
+                storySpan.textContent = entry.storyId;
+                label.textContent = labelText;
+                label.appendChild(storySpan);
+            } else {
+                label.textContent = labelText;
             }
-            li.innerHTML = `<span>Round ${roundCounter}</span> <strong style="${bgStyle} ${textStyle} padding: 2px 10px; border-radius: 12px;">${scoreText}</strong>`;
-            roundCounter++;
+
+            const rightSide = document.createElement('div');
+            rightSide.className = 'history-round-right';
+
+            // Score badge
+            const scoreBadge = document.createElement('strong');
+            scoreBadge.className = 'history-vote-badge';
+            scoreBadge.textContent = entry.score;
+            if (FIB_COLORS[entry.score]) {
+                scoreBadge.style.backgroundColor = FIB_COLORS[entry.score].bg;
+                scoreBadge.style.color = FIB_COLORS[entry.score].text;
+            } else {
+                scoreBadge.style.backgroundColor = '#343a40';
+                scoreBadge.style.color = '#fff';
+            }
+            rightSide.appendChild(scoreBadge);
+
+            // Chevron (only if votes data exists)
+            if (entry.votes) {
+                const chevron = document.createElement('span');
+                chevron.className = 'history-round-chevron';
+                chevron.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>';
+                rightSide.appendChild(chevron);
+            }
+
+            header.appendChild(label);
+            header.appendChild(rightSide);
+
+            // Details section (hidden by default)
+            const details = document.createElement('div');
+            details.className = 'history-round-details';
+
+            if (entry.votes) {
+                // Sort voters by vote value (ascending), non-voters and ? at end
+                const voters = Object.entries(entry.votes).map(([name, vote]) => ({ name, vote }));
+                voters.sort((a, b) => {
+                    const valA = a.vote && a.vote !== '?' ? parseFloat(a.vote) : Infinity;
+                    const valB = b.vote && b.vote !== '?' ? parseFloat(b.vote) : Infinity;
+                    return valA - valB;
+                });
+
+                voters.forEach(({ name, vote }) => {
+                    const row = document.createElement('div');
+                    row.className = 'history-vote-row';
+
+                    const nameEl = document.createElement('span');
+                    nameEl.className = 'history-vote-name';
+                    nameEl.textContent = name;
+
+                    const badge = document.createElement('span');
+                    badge.className = 'history-vote-badge';
+
+                    if (!vote) {
+                        badge.textContent = '😴';
+                        badge.style.backgroundColor = 'transparent';
+                    } else if (vote === '?') {
+                        badge.textContent = '?';
+                        badge.style.backgroundColor = '#343a40';
+                        badge.style.color = '#fff';
+                    } else {
+                        badge.textContent = vote;
+                        if (FIB_COLORS[vote]) {
+                            badge.style.backgroundColor = FIB_COLORS[vote].bg;
+                            badge.style.color = FIB_COLORS[vote].text;
+                        } else {
+                            badge.style.backgroundColor = '#343a40';
+                            badge.style.color = '#fff';
+                        }
+                    }
+
+                    row.appendChild(nameEl);
+                    row.appendChild(badge);
+                    details.appendChild(row);
+                });
+
+                // Toggle expand on header click
+                header.addEventListener('click', () => {
+                    li.classList.toggle('expanded');
+                });
+            }
+
+            li.appendChild(header);
+            li.appendChild(details);
             elements.historyList.appendChild(li);
+            roundCounter++;
         });
         currentRoundNumber = roundCounter;
-        
+
         // Auto-scroll to the bottom to always show the newest round
         elements.historyList.scrollTop = elements.historyList.scrollHeight;
     } else {
@@ -591,6 +800,23 @@ function renderHistory(historyObj) {
         currentRoundNumber = 1;
     }
 }
+
+// Expand/collapse all history rounds
+elements.expandAllHistoryBtn.addEventListener('click', () => {
+    const rounds = elements.historyList.querySelectorAll('.history-round');
+    const allExpanded = Array.from(rounds).every(r => r.classList.contains('expanded'));
+    rounds.forEach(r => {
+        // Only toggle rounds that have votes (chevron)
+        if (r.querySelector('.history-round-chevron')) {
+            if (allExpanded) {
+                r.classList.remove('expanded');
+            } else {
+                r.classList.add('expanded');
+            }
+        }
+    });
+    elements.expandAllHistoryBtn.classList.toggle('expanded', !allExpanded);
+});
 
 elements.clearHistoryBtn.addEventListener('click', () => {
     if (!currentRoomId || isOfflineMode) return;
@@ -659,9 +885,12 @@ init();
 window.__TEST_EXPORTS__ = {
     calculateAverage,
     getClosestFibonacci,
+    checkAutoRevealCondition,
     generateId,
+    formatTimeAgo,
     joinRoomOffline,
     handleCardSelect,
+    collectVotes,
     get playersData() { return playersData; },
     setPlayersData: (data) => { playersData = data; },
     setIsRevealed: (rev) => { isRevealed = rev; },

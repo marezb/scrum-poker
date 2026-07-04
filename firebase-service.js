@@ -57,14 +57,21 @@ export function setAutoTimer(roomId, durationSec) {
     });
 }
 
+export function setStoryId(roomId, storyId) {
+    return update(ref(db, `rooms/${roomId}/state`), {
+        storyId: storyId || ''
+    });
+}
+
 export function closeRoom(roomId) {
-    alert("System: Uruchamiam nową funkcję kasowania (v5) dla pokoju " + roomId);
     console.warn("Completely deleting room from database:", roomId);
-    // Explicitly remove children in case Firebase security rules prevent deleting the parent node directly
-    remove(ref(db, `rooms/${roomId}/state`));
-    remove(ref(db, `rooms/${roomId}/players`));
-    remove(ref(db, `rooms/${roomId}/history`));
-    return remove(ref(db, `rooms/${roomId}/metadata`));
+    // Remove all children and then the parent node itself
+    return Promise.all([
+        remove(ref(db, `rooms/${roomId}/state`)),
+        remove(ref(db, `rooms/${roomId}/players`)),
+        remove(ref(db, `rooms/${roomId}/history`)),
+        remove(ref(db, `rooms/${roomId}/metadata`))
+    ]).then(() => remove(ref(db, `rooms/${roomId}`)));
 }
 
 export function joinRoom(roomId, playerId, playerData, callbacks) {
@@ -130,13 +137,16 @@ export function clearAllVotes(roomId, playersData, resetByName = null) {
     return update(ref(db), updates);
 }
 
-export function addRoundHistory(roomId, score) {
+export function addRoundHistory(roomId, score, votes = null, storyId = null) {
     update(ref(db, `rooms/${roomId}/metadata`), { lastActive: Date.now() });
-    return push(ref(db, `rooms/${roomId}/history`), {
+    const entry = {
         type: 'round',
         score: score,
         timestamp: Date.now()
-    });
+    };
+    if (votes) entry.votes = votes;
+    if (storyId) entry.storyId = storyId;
+    return push(ref(db, `rooms/${roomId}/history`), entry);
 }
 export function clearRoundHistory(roomId) {
     update(ref(db, `rooms/${roomId}/metadata`), { lastActive: Date.now() });
